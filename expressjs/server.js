@@ -1,4 +1,5 @@
 // ---------------------- Imports ----------------------
+require("dotenv").config();
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
@@ -8,14 +9,23 @@ const jwt = require("jsonwebtoken");
 // ---------------------- App Setup ----------------------
 const app = express();
 app.use(express.json());
-app.use(cors());
+
+// CORS configuration
+const corsOptions = {
+  origin: process.env.CLIENT_URL || "http://localhost:5173",
+  credentials: true,
+  optionsSuccessStatus: 200,
+};
+app.use(cors(corsOptions));
 
 // ---------------------- MongoDB Connection ----------------------
-mongoose.connect("mongodb://127.0.0.1:27017/personalBlog", {
+const MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/personalBlog";
+
+mongoose.connect(MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 })
-.then(() => console.log("✅ MongoDB Connected"))
+.then(() => console.log("✅ MongoDB Connected to:", MONGODB_URI.includes('@') ? 'MongoDB Atlas' : 'Local MongoDB'))
 .catch((err) => console.log("❌ MongoDB Error:", err));
 
 // ---------------------- Models ----------------------
@@ -53,12 +63,14 @@ const postSchema = new mongoose.Schema({
 const Post = mongoose.model("Post", postSchema);
 
 // ---------------------- Middleware ----------------------
+const JWT_SECRET = process.env.JWT_SECRET || "secretkey";
+
 const authMiddleware = async (req, res, next) => {
   const token = req.headers.authorization?.split(" ")[1];
   if (!token) return res.status(401).json({ message: "Unauthorized: No Token Provided" });
 
   try {
-    const decoded = jwt.verify(token, "secretkey");
+    const decoded = jwt.verify(token, JWT_SECRET);
     req.user = decoded;
     next();
   } catch (err) {
@@ -80,7 +92,8 @@ app.post("/api/register", async (req, res) => {
     if (existingUser)
       return res.status(400).json({ message: "User already exists with this email" });
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const saltRounds = parseInt(process.env.BCRYPT_SALT_ROUNDS) || 10;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
     const newUser = await User.create({
       name,
       email,
@@ -113,7 +126,8 @@ app.post("/api/login", async (req, res) => {
     if (!isMatch)
       return res.status(400).json({ message: "Invalid email or password" });
 
-    const token = jwt.sign({ id: user._id }, "secretkey", { expiresIn: "1d" });
+    const jwtExpire = process.env.JWT_EXPIRE || "1d";
+    const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: jwtExpire });
     res.json({
       token,
       user: { id: user._id, name: user.name, email: user.email },
@@ -281,5 +295,10 @@ app.get("/", (req, res) => {
 });
 
 // ---------------------- Server Start ----------------------
-const PORT = 5000;
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+const PORT = process.env.PORT || 5000;
+const NODE_ENV = process.env.NODE_ENV || "development";
+
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`📦 Environment: ${NODE_ENV}`);
+});
